@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from recap.facts import classify_commands, dedupe
+from recap.llm import LLMError, summarize_with_openrouter
 
 
 class FactsTest(unittest.TestCase):
@@ -25,6 +27,11 @@ class FactsTest(unittest.TestCase):
 
     def test_dedupe_preserves_order(self) -> None:
         self.assertEqual(dedupe(["a", "b", "a", "", "c"]), ["a", "b", "c"])
+
+    def test_openrouter_requires_key(self) -> None:
+        with patch.dict("os.environ", {}, clear=True):
+            with self.assertRaises(LLMError):
+                summarize_with_openrouter("hello")
 
 
 if __name__ == "__main__":

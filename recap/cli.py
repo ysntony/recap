@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 from .codex import default_codex_home, discover_session_files, parse_session_file
 from .facts import build_work_facts, deterministic_summary, facts_to_json, render_facts, render_summary_prompt
 from .gitinfo import inspect_git
-from .llm import LLMError, summarize_with_openai
+from .llm import LLMError, summarize_with_openai, summarize_with_openrouter
 from .report import render_status, render_timeline, render_today
 from .store import EventStore, default_db_path
 
@@ -74,7 +74,7 @@ def build_parser() -> argparse.ArgumentParser:
     summarize.add_argument("--since", default=None, help="Start date/time, e.g. 2026-06-07 or 2026-06-07T09:00.")
     summarize.add_argument("--no-scan", action="store_true", help="Use existing database contents without scanning first.")
     summarize.add_argument("--prompt", action="store_true", help="Print the LLM prompt instead of summarizing.")
-    summarize.add_argument("--llm", choices=["openai"], default=None, help="Use an LLM provider instead of deterministic summary.")
+    summarize.add_argument("--llm", choices=["openai", "openrouter"], default=None, help="Use an LLM provider instead of deterministic summary.")
     summarize.add_argument("--model", default=None, help="Model name for the selected LLM provider.")
     summarize.set_defaults(rebuild=False)
 
@@ -145,6 +145,15 @@ def cmd_summarize(args: argparse.Namespace, project: Path, db_path: Path) -> int
     if args.llm == "openai":
         try:
             print(summarize_with_openai(prompt, model=args.model), end="")
+        except LLMError as exc:
+            print(f"LLM summary unavailable: {exc}")
+            print()
+            print("Deterministic fallback:")
+            print(deterministic_summary(facts), end="")
+        return 0
+    if args.llm == "openrouter":
+        try:
+            print(summarize_with_openrouter(prompt, model=args.model), end="")
         except LLMError as exc:
             print(f"LLM summary unavailable: {exc}")
             print()
