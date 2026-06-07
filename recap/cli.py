@@ -6,7 +6,9 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from .codex import default_codex_home, discover_session_files, parse_session_file
+from .facts import build_work_facts, deterministic_summary, facts_to_json, render_facts, render_summary_prompt
 from .gitinfo import inspect_git
+from .llm import LLMError, summarize_with_openai
 from .report import render_status, render_timeline, render_today
 from .store import EventStore, default_db_path
 
@@ -26,6 +28,14 @@ def main(argv: list[str] | None = None) -> int:
         if not args.no_scan:
             cmd_scan(args, project, db_path, quiet=True)
         return cmd_today(args, project, db_path)
+    if args.command == "facts":
+        if not args.no_scan:
+            cmd_scan(args, project, db_path, quiet=True)
+        return cmd_facts(args, project, db_path)
+    if args.command == "summarize":
+        if not args.no_scan:
+            cmd_scan(args, project, db_path, quiet=True)
+        return cmd_summarize(args, project, db_path)
     if args.command == "status":
         return cmd_status(args, project, db_path)
     if args.command == "timeline":
@@ -51,6 +61,22 @@ def build_parser() -> argparse.ArgumentParser:
     today.add_argument("--since", default=None, help="Start date/time, e.g. 2026-06-07 or 2026-06-07T09:00.")
     today.add_argument("--no-scan", action="store_true", help="Use existing database contents without scanning first.")
     today.set_defaults(rebuild=False)
+
+    facts = sub.add_parser("facts", help="Show compact work facts for summarization.")
+    facts.add_argument("--codex-home", default=str(default_codex_home()), help="Codex home directory.")
+    facts.add_argument("--since", default=None, help="Start date/time, e.g. 2026-06-07 or 2026-06-07T09:00.")
+    facts.add_argument("--no-scan", action="store_true", help="Use existing database contents without scanning first.")
+    facts.add_argument("--json", action="store_true", help="Print facts as JSON.")
+    facts.set_defaults(rebuild=False)
+
+    summarize = sub.add_parser("summarize", help="Summarize compact work facts, optionally using an LLM provider.")
+    summarize.add_argument("--codex-home", default=str(default_codex_home()), help="Codex home directory.")
+    summarize.add_argument("--since", default=None, help="Start date/time, e.g. 2026-06-07 or 2026-06-07T09:00.")
+    summarize.add_argument("--no-scan", action="store_true", help="Use existing database contents without scanning first.")
+    summarize.add_argument("--prompt", action="store_true", help="Print the LLM prompt instead of summarizing.")
+    summarize.add_argument("--llm", choices=["openai"], default=None, help="Use an LLM provider instead of deterministic summary.")
+    summarize.add_argument("--model", default=None, help="Model name for the selected LLM provider.")
+    summarize.set_defaults(rebuild=False)
 
     sub.add_parser("status", help="Show database and git status for the project.")
 
@@ -101,6 +127,34 @@ def cmd_today(args: argparse.Namespace, project: Path, db_path: Path) -> int:
     return 0
 
 
+def cmd_facts(args: argparse.Namespace, project: Path, db_path: Path) -> int:
+    facts = load_facts(args, project, db_path)
+    if args.json:
+        print(facts_to_json(facts), end="")
+    else:
+        print(render_facts(facts), end="")
+    return 0
+
+
+def cmd_summarize(args: argparse.Namespace, project: Path, db_path: Path) -> int:
+    facts = load_facts(args, project, db_path)
+    prompt = render_summary_prompt(facts)
+    if args.prompt:
+        print(prompt)
+        return 0
+    if args.llm == "openai":
+        try:
+            print(summarize_with_openai(prompt, model=args.model), end="")
+        except LLMError as exc:
+            print(f"LLM summary unavailable: {exc}")
+            print()
+            print("Deterministic fallback:")
+            print(deterministic_summary(facts), end="")
+        return 0
+    print(deterministic_summary(facts), end="")
+    return 0
+
+
 def cmd_status(args: argparse.Namespace, project: Path, db_path: Path) -> int:
     store = EventStore(db_path)
     try:
@@ -119,6 +173,16 @@ def cmd_timeline(args: argparse.Namespace, project: Path, db_path: Path) -> int:
         store.close()
     print(render_timeline(rows), end="")
     return 0
+
+
+def load_facts(args: argparse.Namespace, project: Path, db_path: Path):
+    since = parse_since(args.since)
+    store = EventStore(db_path)
+    try:
+        rows = store.events_since(project, since)
+    finally:
+        store.close()
+    return build_work_facts(project, since, rows, inspect_git(project))
 
 
 def session_matches_project(session_cwd: Path | None, project: Path) -> bool:

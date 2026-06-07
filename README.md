@@ -16,6 +16,8 @@ Run from a project directory:
 ```bash
 python3 -m recap scan
 python3 -m recap today
+python3 -m recap facts
+python3 -m recap summarize
 python3 -m recap status
 python3 -m recap timeline
 ```
@@ -28,8 +30,13 @@ Useful options:
 python3 -m recap scan --project /path/to/project
 python3 -m recap scan --rebuild
 python3 -m recap today --since 2026-06-07
+python3 -m recap facts --json
+python3 -m recap summarize --prompt
+python3 -m recap summarize --llm openai
 python3 -m recap timeline --limit 40
 ```
+
+`summarize` is deterministic by default. `summarize --llm openai` sends a compact work-facts prompt to OpenAI when `OPENAI_API_KEY` is set; otherwise it falls back gracefully.
 
 ## Current Scope
 
