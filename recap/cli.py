@@ -1,0 +1,139 @@
+from __future__ import annotations
+
+import argparse
+from datetime import datetime, time
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+from .codex import default_codex_home, discover_session_files, parse_session_file
+from .gitinfo import inspect_git
+from .report import render_status, render_timeline, render_today
+from .store import EventStore, default_db_path
+
+
+LOCAL_TZ = ZoneInfo("Asia/Shanghai")
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    project = Path(args.project).expanduser().resolve()
+    db_path = Path(args.db).expanduser().resolve() if args.db else default_db_path(project)
+
+    if args.command == "scan":
+        return cmd_scan(args, project, db_path)
+    if args.command == "today":
+        if not args.no_scan:
+            cmd_scan(args, project, db_path, quiet=True)
+        return cmd_today(args, project, db_path)
+    if args.command == "status":
+        return cmd_status(args, project, db_path)
+    if args.command == "timeline":
+        return cmd_timeline(args, project, db_path)
+
+    parser.print_help()
+    return 1
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="recap", description="Recap Codex work for a local project.")
+    parser.add_argument("--project", default=".", help="Project path to recap. Defaults to current directory.")
+    parser.add_argument("--db", default=None, help="SQLite database path. Defaults to PROJECT/.recap/recap.sqlite.")
+
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    scan = sub.add_parser("scan", help="Ingest Codex JSONL sessions into the local Recap database.")
+    scan.add_argument("--codex-home", default=str(default_codex_home()), help="Codex home directory.")
+    scan.add_argument("--rebuild", action="store_true", help="Clear existing events for this project before scanning.")
+
+    today = sub.add_parser("today", help="Show today's Codex and git recap.")
+    today.add_argument("--codex-home", default=str(default_codex_home()), help="Codex home directory.")
+    today.add_argument("--since", default=None, help="Start date/time, e.g. 2026-06-07 or 2026-06-07T09:00.")
+    today.add_argument("--no-scan", action="store_true", help="Use existing database contents without scanning first.")
+    today.set_defaults(rebuild=False)
+
+    sub.add_parser("status", help="Show database and git status for the project.")
+
+    timeline = sub.add_parser("timeline", help="Show recent normalized events.")
+    timeline.add_argument("--limit", type=int, default=40)
+
+    return parser
+
+
+def cmd_scan(args: argparse.Namespace, project: Path, db_path: Path, quiet: bool = False) -> int:
+    codex_home = Path(args.codex_home).expanduser().resolve()
+    store = EventStore(db_path)
+    scanned = 0
+    matched = 0
+    inserted = 0
+    try:
+        if getattr(args, "rebuild", False):
+            store.clear_project(project)
+        for path in discover_session_files(codex_home):
+            scanned += 1
+            session, events = parse_session_file(path)
+            if session is None:
+                continue
+            if not session_matches_project(session.cwd, project):
+                continue
+            matched += 1
+            store.upsert_session(session)
+            inserted += store.insert_events(events)
+        store.commit()
+    finally:
+        store.close()
+    if not quiet:
+        print(f"Scanned {scanned} Codex session file(s).")
+        print(f"Matched {matched} session file(s) for {project}.")
+        print(f"Inserted {inserted} new event(s).")
+        print(f"Database: {db_path}")
+    return 0
+
+
+def cmd_today(args: argparse.Namespace, project: Path, db_path: Path) -> int:
+    since = parse_since(args.since)
+    store = EventStore(db_path)
+    try:
+        rows = store.events_since(project, since)
+    finally:
+        store.close()
+    print(render_today(project, since, rows, inspect_git(project)), end="")
+    return 0
+
+
+def cmd_status(args: argparse.Namespace, project: Path, db_path: Path) -> int:
+    store = EventStore(db_path)
+    try:
+        stats = store.stats(project)
+    finally:
+        store.close()
+    print(render_status(project, inspect_git(project), stats), end="")
+    return 0
+
+
+def cmd_timeline(args: argparse.Namespace, project: Path, db_path: Path) -> int:
+    store = EventStore(db_path)
+    try:
+        rows = store.recent_events(project, args.limit)
+    finally:
+        store.close()
+    print(render_timeline(rows), end="")
+    return 0
+
+
+def session_matches_project(session_cwd: Path | None, project: Path) -> bool:
+    if session_cwd is None:
+        return False
+    session_path = session_cwd.resolve()
+    project = project.resolve()
+    return session_path == project or project in session_path.parents
+
+
+def parse_since(value: str | None) -> datetime:
+    if value:
+        parsed = datetime.fromisoformat(value)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=LOCAL_TZ)
+        return parsed
+    today = datetime.now(LOCAL_TZ).date()
+    return datetime.combine(today, time.min, tzinfo=LOCAL_TZ)

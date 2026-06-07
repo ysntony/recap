@@ -1,0 +1,13 @@
+[project]
+name = "recap"
+version = "0.1.0"
+description = "Local work recaps from Codex sessions and git state."
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+recap = "recap.cli:main"
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
