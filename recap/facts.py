@@ -203,6 +203,12 @@ def render_summary_prompt(facts: WorkFacts | AllProjectsFacts, language: str = "
             "Summarize the work facts below. Do not invent facts.",
             language_instruction,
             sections,
+            "Separate current state from historical observations:",
+            "- Treat Git lines, changed files, unpushed commits, pending prompts, and attention items as current state.",
+            "- Treat command output details, process IDs, ports, version update notices, and past troubleshooting observations as historical unless the current facts explicitly confirm they are still true.",
+            "- Do not recommend killing specific process IDs unless current facts prove those processes are still running; say to verify first.",
+            "- Do not say a thread is open, unclosed, or unresolved unless it appears as Pending.",
+            "- For completed clean projects, do not invent PR work; commit or PR notes should focus on projects with changed files, unpushed commits, or pending work.",
             "",
             body,
         ]
@@ -248,7 +254,7 @@ def deterministic_summary(facts: WorkFacts | AllProjectsFacts, language: str = "
     else:
         lines.append("- Continue with the next product slice: richer file/change extraction or an LLM provider config." if language != "chinese" else "- 继续下一个产品切片：更丰富的文件/变更提取，或 LLM provider 配置。")
     lines.extend(["", labels["commit_notes"]])
-    lines.append("- Summarize the commands, prompts, and completed turns from `recap facts`." if language != "chinese" else "- 用 `recap facts` 里的命令、提示和完成记录整理提交或 PR 描述。")
+    lines.extend(format_list(commit_note_items([facts], language)))
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -292,7 +298,7 @@ def deterministic_all_projects_summary(facts: AllProjectsFacts, language: str = 
             next_actions.append(f"Run a validation command in `{label}` and rescan." if language != "chinese" else f"在 `{label}` 中运行验证命令，然后重新 scan。")
     lines.extend(format_list(dedupe(next_actions)[:5] or [labels["review_threads"]]))
     lines.extend(["", labels["commit_notes"]])
-    lines.append("- Use each project's thread section as the source for commit or PR summaries." if language != "chinese" else "- 用每个项目的 thread 区块作为提交或 PR 摘要的素材。")
+    lines.extend(format_list(commit_note_items(facts.projects, language)))
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -486,6 +492,32 @@ def pending_line(label: str, prompt: str, language: str) -> str:
     if language == "chinese":
         return f"{label}: 等待处理 `{prompt}`"
     return f"{label}: awaiting response to `{prompt}`"
+
+
+def commit_note_items(projects: list[WorkFacts], language: str) -> list[str]:
+    notes = []
+    for project in projects:
+        label = project_label(project.project)
+        if project.git.is_repo and project.git.changed_files:
+            if language == "chinese":
+                notes.append(f"`{label}`: 提交说明应概述 {len(project.git.changed_files)} 个已变更文件的用户可见变化，并注明验证状态。")
+            else:
+                notes.append(f"`{label}`: Commit notes should summarize the user-visible change across {len(project.git.changed_files)} changed file(s) and mention validation status.")
+        elif project.git.is_repo and project.git.unpushed_commits:
+            if language == "chinese":
+                notes.append(f"`{label}`: 推送前确认未推送提交的说明仍然准确。")
+            else:
+                notes.append(f"`{label}`: Confirm the unpushed commit notes are still accurate before pushing.")
+        elif latest_pending_prompts(project, count=1):
+            if language == "chinese":
+                notes.append(f"`{label}`: 等待当前 pending 线程完成后再整理提交或 PR 说明。")
+            else:
+                notes.append(f"`{label}`: Wait for the current pending thread to finish before drafting commit or PR notes.")
+    if notes:
+        return notes[:5]
+    if language == "chinese":
+        return ["当前没有检测到需要提交或 PR 说明的项目。"]
+    return ["No projects currently need commit or PR notes."]
 
 
 def translate_attention(items: list[str], language: str) -> list[str]:

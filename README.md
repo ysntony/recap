@@ -50,7 +50,7 @@ All-project mode stores data in `~/.recap/recap.sqlite`, scans every Codex sessi
 
 `summarize` is deterministic by default. `summarize --llm openai` sends a compact work-facts prompt to OpenAI when `OPENAI_API_KEY` is set; otherwise it falls back gracefully.
 `summarize --llm openrouter` uses `OPENROUTER_API_KEY` and defaults to `OPENROUTER_MODEL=openai/gpt-4.1`.
-Use `summarize --language chinese` for Simplified Chinese output, or run `python3 -m recap tui` to choose scope, language, LLM provider, model, and scan mode interactively.
+Use `summarize --language chinese` for Simplified Chinese output, or run `python3 -m recap tui` to choose language, scope, LLM provider, model, and scan mode interactively. After the language choice, the TUI prompts and status messages switch to the selected language too.
 
 ## OpenRouter Setup
 

@@ -21,41 +21,47 @@ def run_tui(project: Path, db_path: Path, codex_home: Path | None = None) -> int
     print()
 
     try:
-        all_projects = choose(
-            "Scope",
-            [
-                ("Current project", False),
-                ("All projects", True),
-            ],
-        )
         language = choose(
-            "Summary language",
+            "Summary language / 摘要语言",
             [
                 ("English", "english"),
-                ("Chinese", "chinese"),
+                ("中文", "chinese"),
             ],
+            language="bilingual",
+        )
+        labels = tui_labels(language)
+        all_projects = choose(
+            labels["scope"],
+            [
+                (labels["current_project"], False),
+                (labels["all_projects"], True),
+            ],
+            language=language,
         )
         llm = choose(
-            "Summary engine",
+            labels["summary_engine"],
             [
-                ("Deterministic local summary", None),
-                (provider_label("openrouter"), "openrouter"),
-                (provider_label("openai"), "openai"),
+                (labels["deterministic"], None),
+                (provider_label("openrouter", language), "openrouter"),
+                (provider_label("openai", language), "openai"),
             ],
+            language=language,
         )
-        model = ask_model(llm)
+        model = ask_model(llm, language)
         scan_mode = choose(
-            "Scan mode",
+            labels["scan_mode"],
             [
-                ("Scan incrementally first", "scan"),
-                ("Use existing database", "no_scan"),
-                ("Rebuild then scan", "rebuild"),
+                (labels["scan_incremental"], "scan"),
+                (labels["use_existing"], "no_scan"),
+                (labels["rebuild_scan"], "rebuild"),
             ],
+            language=language,
         )
-        since = input("Since [today]: ").strip() or None
+        since = input(labels["since"]).strip() or None
     except KeyboardInterrupt:
         print()
-        print("Cancelled.")
+        language = locals().get("language", "english")
+        print(tui_labels(language)["cancelled"])
         return 130
 
     summary_db_path = default_global_db_path() if all_projects else db_path
@@ -74,31 +80,32 @@ def run_tui(project: Path, db_path: Path, codex_home: Path | None = None) -> int
 
     facts = load_facts(args, project, summary_db_path)
     if llm:
-        print("Using compact work facts with the selected LLM provider.")
+        print(labels["using_llm"])
     print(summarize_facts(facts, llm=llm, model=model, language=language), end="")
     return 0
 
 
-def choose(title: str, options: list[tuple[str, T]]) -> T:
+def choose(title: str, options: list[tuple[str, T]], language: str) -> T:
+    labels = tui_labels(language)
     print(title)
     for index, (label, _) in enumerate(options, start=1):
         print(f"  {index}. {label}")
     while True:
-        raw = input("Choose [1]: ").strip()
+        raw = input(labels["choose"]).strip()
         if not raw:
             return options[0][1]
         if raw.isdigit():
             index = int(raw)
             if 1 <= index <= len(options):
                 return options[index - 1][1]
-        print(f"Enter a number from 1 to {len(options)}.")
+        print(labels["choose_error"].format(count=len(options)))
 
 
-def ask_model(llm: str | None) -> str | None:
+def ask_model(llm: str | None, language: str) -> str | None:
     if not llm:
         return None
     default = default_model(llm)
-    raw = input(f"Model [{default}]: ").strip()
+    raw = input(tui_labels(language)["model"].format(default=default)).strip()
     return raw or None
 
 
@@ -108,9 +115,58 @@ def default_model(llm: str) -> str:
     return os.environ.get("OPENAI_MODEL", "gpt-5.5")
 
 
-def provider_label(provider: str) -> str:
+def provider_label(provider: str, language: str) -> str:
     if provider == "openrouter":
-        status = "key set" if os.environ.get("OPENROUTER_API_KEY") else "missing OPENROUTER_API_KEY"
+        if language == "chinese":
+            status = "已设置 key" if os.environ.get("OPENROUTER_API_KEY") else "缺少 OPENROUTER_API_KEY"
+        else:
+            status = "key set" if os.environ.get("OPENROUTER_API_KEY") else "missing OPENROUTER_API_KEY"
         return f"OpenRouter ({status})"
-    status = "key set" if os.environ.get("OPENAI_API_KEY") else "missing OPENAI_API_KEY"
+    if language == "chinese":
+        status = "已设置 key" if os.environ.get("OPENAI_API_KEY") else "缺少 OPENAI_API_KEY"
+    else:
+        status = "key set" if os.environ.get("OPENAI_API_KEY") else "missing OPENAI_API_KEY"
     return f"OpenAI ({status})"
+
+
+def tui_labels(language: str) -> dict[str, str]:
+    if language == "chinese":
+        return {
+            "scope": "范围",
+            "current_project": "当前项目",
+            "all_projects": "全部项目",
+            "summary_engine": "摘要引擎",
+            "deterministic": "本地确定性摘要",
+            "scan_mode": "扫描模式",
+            "scan_incremental": "先增量扫描",
+            "use_existing": "使用现有数据库",
+            "rebuild_scan": "重建后扫描",
+            "since": "起始时间 [今天]: ",
+            "choose": "选择 [1]: ",
+            "choose_error": "请输入 1 到 {count} 之间的数字。",
+            "model": "模型 [{default}]: ",
+            "cancelled": "已取消。",
+            "using_llm": "正在使用紧凑 work facts 和所选 LLM provider。",
+        }
+    if language == "bilingual":
+        return {
+            "choose": "Choose / 选择 [1]: ",
+            "choose_error": "Enter a number from 1 to {count}. / 请输入 1 到 {count} 之间的数字。",
+        }
+    return {
+        "scope": "Scope",
+        "current_project": "Current project",
+        "all_projects": "All projects",
+        "summary_engine": "Summary engine",
+        "deterministic": "Deterministic local summary",
+        "scan_mode": "Scan mode",
+        "scan_incremental": "Scan incrementally first",
+        "use_existing": "Use existing database",
+        "rebuild_scan": "Rebuild then scan",
+        "since": "Since [today]: ",
+        "choose": "Choose [1]: ",
+        "choose_error": "Enter a number from 1 to {count}.",
+        "model": "Model [{default}]: ",
+        "cancelled": "Cancelled.",
+        "using_llm": "Using compact work facts with the selected LLM provider.",
+    }

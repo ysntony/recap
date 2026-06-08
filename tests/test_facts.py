@@ -89,6 +89,8 @@ class FactsTest(unittest.TestCase):
         prompt = render_summary_prompt(facts, language="chinese")
         self.assertIn("Write the final summary in Simplified Chinese.", prompt)
         self.assertIn("已完成, 进行中, 风险", prompt)
+        self.assertIn("Treat command output details, process IDs, ports, version update notices", prompt)
+        self.assertIn("Do not say a thread is open, unclosed, or unresolved unless it appears as Pending.", prompt)
 
     def test_all_project_grouping(self) -> None:
         rows = [
