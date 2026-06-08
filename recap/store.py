@@ -14,6 +14,10 @@ def default_db_path(project: Path) -> Path:
     return project / ".recap" / "recap.sqlite"
 
 
+def default_global_db_path() -> Path:
+    return Path.home() / ".recap" / "recap.sqlite"
+
+
 class EventStore:
     def __init__(self, path: Path):
         self.path = path
@@ -111,6 +115,10 @@ class EventStore:
         self.conn.execute("delete from events where project_path = ?", (project_path,))
         self.conn.execute("delete from sessions where project_path = ?", (project_path,))
 
+    def clear_all(self) -> None:
+        self.conn.execute("delete from events")
+        self.conn.execute("delete from sessions")
+
     def events_since(self, project: Path, since: datetime) -> list[sqlite3.Row]:
         return list(
             self.conn.execute(
@@ -120,6 +128,18 @@ class EventStore:
                 order by ts asc
                 """,
                 (str(project.resolve()), iso(since)),
+            )
+        )
+
+    def events_since_all_projects(self, since: datetime) -> list[sqlite3.Row]:
+        return list(
+            self.conn.execute(
+                """
+                select * from events
+                where project_path is not null and ts >= ?
+                order by project_path asc, ts asc
+                """,
+                (iso(since),),
             )
         )
 
@@ -137,6 +157,20 @@ class EventStore:
         )
         return list(reversed(rows))
 
+    def recent_events_all_projects(self, limit: int) -> list[sqlite3.Row]:
+        rows = list(
+            self.conn.execute(
+                """
+                select * from events
+                where project_path is not null
+                order by ts desc
+                limit ?
+                """,
+                (limit,),
+            )
+        )
+        return list(reversed(rows))
+
     def stats(self, project: Path | None = None) -> dict[str, object]:
         where = ""
         params: tuple[str, ...] = ()
@@ -150,6 +184,18 @@ class EventStore:
             params,
         ).fetchone()["n"]
         return {"sessions": sessions, "events": sum(kinds.values()), "kinds": dict(kinds)}
+
+    def project_stats(self) -> list[dict[str, object]]:
+        rows = self.conn.execute(
+            """
+            select project_path, count(distinct thread_id) as sessions, count(*) as events, max(ts) as updated_at
+            from events
+            where project_path is not null
+            group by project_path
+            order by updated_at desc
+            """
+        ).fetchall()
+        return [dict(row) for row in rows]
 
 
 def iso(value: datetime | None) -> str | None:

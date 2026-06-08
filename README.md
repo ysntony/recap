@@ -15,7 +15,9 @@ Run from a project directory:
 
 ```bash
 python3 -m recap scan
+python3 -m recap scan --all-projects
 python3 -m recap today
+python3 -m recap today --all-projects
 python3 -m recap facts
 python3 -m recap summarize
 python3 -m recap status
@@ -29,13 +31,20 @@ Useful options:
 ```bash
 python3 -m recap scan --project /path/to/project
 python3 -m recap scan --rebuild
+python3 -m recap scan --all-projects --rebuild
 python3 -m recap today --since 2026-06-07
 python3 -m recap facts --json
+python3 -m recap facts --all-projects
 python3 -m recap summarize --prompt
+python3 -m recap summarize --all-projects
 python3 -m recap summarize --llm openai
 python3 -m recap summarize --llm openrouter
 python3 -m recap timeline --limit 40
+python3 -m recap timeline --all-projects --limit 40
 ```
+
+Project-local mode stores data in `PROJECT/.recap/recap.sqlite`.
+All-project mode stores data in `~/.recap/recap.sqlite`, scans every Codex session with a project path, then groups output by project and by thread.
 
 `summarize` is deterministic by default. `summarize --llm openai` sends a compact work-facts prompt to OpenAI when `OPENAI_API_KEY` is set; otherwise it falls back gracefully.
 `summarize --llm openrouter` uses `OPENROUTER_API_KEY` and defaults to `OPENROUTER_MODEL=openai/gpt-4.1`.
