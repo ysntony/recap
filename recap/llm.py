@@ -42,6 +42,34 @@ def summarize_with_openrouter(prompt: str, model: str | None = None) -> str:
     return text.strip() + "\n"
 
 
+def summarize_with_msh(prompt: str, model: str | None = None) -> str:
+    headers = {"Content-Type": "application/json"}
+    api_key = os.environ.get("MSH_API_KEY")
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    body = {
+        "model": model or os.environ.get("MSH_MODEL", "kimi-k2.6"),
+        "messages": [
+            {"role": "system", "content": "You are Recap, a concise engineering work journal."},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.2,
+    }
+    response = post_json(
+        os.environ.get("MSH_BASE_URL", "https://free-tokens.msh.team/v1").rstrip("/") + "/chat/completions",
+        body,
+        headers,
+    )
+    try:
+        text = response["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise LLMError("MSH internal response did not contain summary text.") from exc
+    if not isinstance(text, str) or not text.strip():
+        raise LLMError("MSH internal response did not contain summary text.")
+    return text.strip() + "\n"
+
+
 def summarize_with_openai(prompt: str, model: str | None = None) -> str:
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:

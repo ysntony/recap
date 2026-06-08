@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from recap.facts import build_all_projects_facts, build_work_facts, classify_commands, clean_prompt, dedupe, deterministic_summary, render_summary_prompt
 from recap.gitinfo import GitStatus
-from recap.llm import LLMError, summarize_with_openrouter
+from recap.llm import LLMError, summarize_with_msh, summarize_with_openrouter
 
 
 class FactsTest(unittest.TestCase):
@@ -47,6 +47,19 @@ class FactsTest(unittest.TestCase):
         with patch.dict("os.environ", {}, clear=True):
             with self.assertRaises(LLMError):
                 summarize_with_openrouter("hello")
+
+    def test_msh_uses_internal_chat_completions_endpoint(self) -> None:
+        with patch.dict("os.environ", {}, clear=True):
+            with patch("recap.llm.post_json") as post_json:
+                post_json.return_value = {"choices": [{"message": {"content": "done"}}]}
+
+                summary = summarize_with_msh("hello")
+
+        self.assertEqual(summary, "done\n")
+        url, body, headers = post_json.call_args.args
+        self.assertEqual(url, "https://free-tokens.msh.team/v1/chat/completions")
+        self.assertEqual(body["model"], "kimi-k2.6")
+        self.assertNotIn("Authorization", headers)
 
     def test_thread_grouping(self) -> None:
         rows = [

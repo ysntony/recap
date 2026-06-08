@@ -41,6 +41,7 @@ python3 -m recap summarize --all-projects
 python3 -m recap summarize --language chinese
 python3 -m recap summarize --llm openai
 python3 -m recap summarize --llm openrouter
+python3 -m recap summarize --llm msh
 python3 -m recap timeline --limit 40
 python3 -m recap timeline --all-projects --limit 40
 ```
@@ -50,6 +51,7 @@ All-project mode stores data in `~/.recap/recap.sqlite`, scans every Codex sessi
 
 `summarize` is deterministic by default. `summarize --llm openai` sends a compact work-facts prompt to OpenAI when `OPENAI_API_KEY` is set; otherwise it falls back gracefully.
 `summarize --llm openrouter` uses `OPENROUTER_API_KEY` and defaults to `OPENROUTER_MODEL=openai/gpt-4.1`.
+`summarize --llm msh` uses the internal MSH OpenAI-compatible endpoint at `https://free-tokens.msh.team/v1` and defaults to `MSH_MODEL=kimi-k2.6`.
 Use `summarize --language chinese` for Simplified Chinese output, or run `python3 -m recap tui` to choose language, scope, LLM provider, model, and scan mode interactively. In a terminal, TUI menus support arrow-key selection and Enter; scripted or piped runs can still choose by number. After the language choice, the TUI prompts and status messages switch to the selected language too.
 
 ## OpenRouter Setup
@@ -74,6 +76,22 @@ Optional environment variables:
 export OPENROUTER_BASE_URL="https://openrouter.ai/api/v1"
 export OPENROUTER_REFERER="https://github.com/ysntony/recap"
 export OPENROUTER_TITLE="Recap"
+```
+
+## Internal MSH Provider
+
+For the internal team:
+
+```bash
+python3 -m recap summarize --llm msh
+```
+
+Optional environment variables:
+
+```bash
+export MSH_BASE_URL="https://free-tokens.msh.team/v1"
+export MSH_MODEL="kimi-k2.6"
+export MSH_API_KEY="..."  # optional, only if the endpoint requires auth
 ```
 
 ## Current Scope

@@ -47,6 +47,7 @@ def run_tui(project: Path, db_path: Path, codex_home: Path | None = None) -> int
             labels["summary_engine"],
             [
                 (labels["deterministic"], None),
+                (provider_label("msh", language), "msh"),
                 (provider_label("openrouter", language), "openrouter"),
                 (provider_label("openai", language), "openai"),
             ],
@@ -232,12 +233,20 @@ def ask_model(llm: str | None, language: str) -> str | None:
 
 
 def default_model(llm: str) -> str:
+    if llm == "msh":
+        return os.environ.get("MSH_MODEL", "kimi-k2.6")
     if llm == "openrouter":
         return os.environ.get("OPENROUTER_MODEL", "openai/gpt-4.1")
     return os.environ.get("OPENAI_MODEL", "gpt-5.5")
 
 
 def provider_label(provider: str, language: str) -> str:
+    if provider == "msh":
+        if language == "chinese":
+            status = "内部 endpoint"
+        else:
+            status = "internal endpoint"
+        return f"MSH internal ({status})"
     if provider == "openrouter":
         if language == "chinese":
             status = "已设置 key" if os.environ.get("OPENROUTER_API_KEY") else "缺少 OPENROUTER_API_KEY"

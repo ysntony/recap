@@ -17,7 +17,7 @@ from .facts import (
     render_summary_prompt,
 )
 from .gitinfo import inspect_git
-from .llm import LLMError, summarize_with_openai, summarize_with_openrouter
+from .llm import LLMError, summarize_with_msh, summarize_with_openai, summarize_with_openrouter
 from .report import render_status, render_timeline, render_today
 from .store import EventStore, default_db_path, default_global_db_path
 
@@ -93,7 +93,7 @@ def build_parser() -> argparse.ArgumentParser:
     summarize.add_argument("--no-scan", action="store_true", help="Use existing database contents without scanning first.")
     summarize.add_argument("--all-projects", action="store_true", help="Summarize all projects from the global Recap database.")
     summarize.add_argument("--prompt", action="store_true", help="Print the LLM prompt instead of summarizing.")
-    summarize.add_argument("--llm", choices=["openai", "openrouter"], default=None, help="Use an LLM provider instead of deterministic summary.")
+    summarize.add_argument("--llm", choices=["openai", "openrouter", "msh"], default=None, help="Use an LLM provider instead of deterministic summary.")
     summarize.add_argument("--model", default=None, help="Model name for the selected LLM provider.")
     summarize.add_argument("--language", choices=LANGUAGES, default="english", help="Summary language.")
     summarize.set_defaults(rebuild=False)
@@ -200,6 +200,11 @@ def summarize_facts(facts, llm: str | None = None, model: str | None = None, lan
     if llm == "openrouter":
         try:
             return summarize_with_openrouter(prompt, model=model)
+        except LLMError as exc:
+            return fallback_summary(exc, facts, language)
+    if llm == "msh":
+        try:
+            return summarize_with_msh(prompt, model=model)
         except LLMError as exc:
             return fallback_summary(exc, facts, language)
     return deterministic_summary(facts, language=language)

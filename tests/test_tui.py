@@ -4,7 +4,7 @@ import unittest
 from io import StringIO
 from unittest.mock import patch
 
-from recap.tui import clear_menu, provider_label, render_menu, tui_labels
+from recap.tui import clear_menu, default_model, provider_label, render_menu, tui_labels
 
 
 class TuiTest(unittest.TestCase):
@@ -23,8 +23,16 @@ class TuiTest(unittest.TestCase):
 
     def test_provider_label_is_localized(self) -> None:
         with patch.dict("os.environ", {}, clear=True):
+            self.assertIn("internal endpoint", provider_label("msh", "english"))
+            self.assertIn("内部 endpoint", provider_label("msh", "chinese"))
             self.assertIn("缺少 OPENROUTER_API_KEY", provider_label("openrouter", "chinese"))
             self.assertIn("missing OPENAI_API_KEY", provider_label("openai", "english"))
+
+    def test_msh_default_model(self) -> None:
+        with patch.dict("os.environ", {}, clear=True):
+            self.assertEqual(default_model("msh"), "kimi-k2.6")
+        with patch.dict("os.environ", {"MSH_MODEL": "kimi-latest"}, clear=True):
+            self.assertEqual(default_model("msh"), "kimi-latest")
 
     def test_arrow_menu_uses_carriage_return_newlines(self) -> None:
         labels = tui_labels("english")
