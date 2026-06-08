@@ -147,14 +147,13 @@ def choose_with_arrows(title: str, options: list[tuple[str, T]], language: str) 
         termios.tcsetattr(fd, termios.TCSADRAIN, old_attrs)
 
 
-def render_menu(title: str, options: list[tuple[str, T]], selected: int, labels: dict[str, str], final: bool = False) -> int:
+def render_menu(title: str, options: list[tuple[str, T]], selected: int, labels: dict[str, str]) -> int:
     lines = [title]
     for index, (label, _) in enumerate(options, start=1):
         if index - 1 == selected:
             lines.append(f"  > {index}. {label}")
         else:
             lines.append(f"    {index}. {label}")
-    lines.append(labels["selected"].format(label=options[selected][0]) if final else labels["arrow_hint"])
     for line in lines:
         sys.stdout.write("\r\033[2K" + line + "\r\n")
     sys.stdout.flush()
@@ -270,15 +269,11 @@ def tui_labels(language: str) -> dict[str, str]:
             "model": "模型 [{default}]: ",
             "cancelled": "已取消。",
             "using_llm": "正在使用紧凑 work facts 和所选 LLM provider。",
-            "arrow_hint": "使用 ↑/↓ 选择，Enter 确认；也可以按数字键。",
-            "selected": "已选择：{label}",
         }
     if language == "bilingual":
         return {
             "choose": "Choose / 选择 [1]: ",
             "choose_error": "Enter a number from 1 to {count}. / 请输入 1 到 {count} 之间的数字。",
-            "arrow_hint": "Use ↑/↓ and Enter. / 使用 ↑/↓ 选择，Enter 确认。",
-            "selected": "Selected / 已选择：{label}",
         }
     return {
         "scope": "Scope",
@@ -296,6 +291,4 @@ def tui_labels(language: str) -> dict[str, str]:
         "model": "Model [{default}]: ",
         "cancelled": "Cancelled.",
         "using_llm": "Using compact work facts with the selected LLM provider.",
-        "arrow_hint": "Use ↑/↓ to move, Enter to choose; number keys also work.",
-        "selected": "Selected: {label}",
     }

@@ -13,16 +13,13 @@ class TuiTest(unittest.TestCase):
 
         self.assertEqual(labels["scope"], "范围")
         self.assertEqual(labels["choose"], "选择 [1]: ")
-        self.assertIn("↑/↓", labels["arrow_hint"])
-        self.assertEqual(labels["selected"], "已选择：{label}")
         self.assertEqual(labels["using_llm"], "正在使用紧凑 work facts 和所选 LLM provider。")
 
     def test_bilingual_language_picker_labels(self) -> None:
         labels = tui_labels("bilingual")
 
         self.assertIn("Choose / 选择", labels["choose"])
-        self.assertIn("Use ↑/↓", labels["arrow_hint"])
-        self.assertIn("Selected / 已选择", labels["selected"])
+        self.assertNotIn("arrow_hint", labels)
 
     def test_provider_label_is_localized(self) -> None:
         with patch.dict("os.environ", {}, clear=True):
@@ -36,9 +33,10 @@ class TuiTest(unittest.TestCase):
         with patch("sys.stdout", output):
             line_count = render_menu("Pick", [("One", 1), ("Two", 2)], 1, labels)
 
-        self.assertEqual(line_count, 4)
+        self.assertEqual(line_count, 3)
         self.assertIn("\r\n", output.getvalue())
         self.assertNotIn("One\n", output.getvalue())
+        self.assertNotIn("↑/↓", output.getvalue())
 
     def test_clear_menu_deletes_rendered_lines(self) -> None:
         output = StringIO()
