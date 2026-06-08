@@ -4,7 +4,7 @@ import unittest
 from io import StringIO
 from unittest.mock import patch
 
-from recap.tui import provider_label, render_menu, tui_labels
+from recap.tui import clear_menu, provider_label, render_menu, tui_labels
 
 
 class TuiTest(unittest.TestCase):
@@ -39,6 +39,14 @@ class TuiTest(unittest.TestCase):
         self.assertEqual(line_count, 4)
         self.assertIn("\r\n", output.getvalue())
         self.assertNotIn("One\n", output.getvalue())
+
+    def test_clear_menu_deletes_rendered_lines(self) -> None:
+        output = StringIO()
+
+        with patch("sys.stdout", output):
+            clear_menu(2)
+
+        self.assertEqual(output.getvalue(), "\r\033[2K\033[M\r\033[2K\033[M")
 
 
 if __name__ == "__main__":

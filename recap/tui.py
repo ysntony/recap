@@ -129,14 +129,14 @@ def choose_with_arrows(title: str, options: list[tuple[str, T]], language: str) 
                 selected = (selected - 1) % len(options)
             elif key in {"enter", "space"}:
                 move_up(line_count)
-                render_menu(title, options, selected, labels, final=True)
+                clear_menu(line_count)
                 return options[selected][1]
             elif key.isdigit():
                 index = int(key)
                 if 1 <= index <= len(options):
                     selected = index - 1
                     move_up(line_count)
-                    render_menu(title, options, selected, labels, final=True)
+                    clear_menu(line_count)
                     return options[selected][1]
             elif key in {"ctrl-c", "esc"}:
                 raise KeyboardInterrupt
@@ -206,6 +206,12 @@ def read_escape_tail(fd: int) -> str:
 
 def move_up(line_count: int) -> None:
     sys.stdout.write(f"\033[{line_count}F")
+
+
+def clear_menu(line_count: int) -> None:
+    for _ in range(line_count):
+        sys.stdout.write("\r\033[2K\033[M")
+    sys.stdout.flush()
 
 
 def hide_cursor() -> None:
