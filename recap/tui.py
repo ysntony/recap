@@ -1,6 +1,11 @@
 from __future__ import annotations
 
 import os
+import fcntl
+import sys
+import termios
+import time
+import tty
 from argparse import Namespace
 from pathlib import Path
 from typing import TypeVar
@@ -86,6 +91,12 @@ def run_tui(project: Path, db_path: Path, codex_home: Path | None = None) -> int
 
 
 def choose(title: str, options: list[tuple[str, T]], language: str) -> T:
+    if sys.stdin.isatty() and sys.stdout.isatty():
+        return choose_with_arrows(title, options, language)
+    return choose_with_input(title, options, language)
+
+
+def choose_with_input(title: str, options: list[tuple[str, T]], language: str) -> T:
     labels = tui_labels(language)
     print(title)
     for index, (label, _) in enumerate(options, start=1):
@@ -99,6 +110,112 @@ def choose(title: str, options: list[tuple[str, T]], language: str) -> T:
             if 1 <= index <= len(options):
                 return options[index - 1][1]
         print(labels["choose_error"].format(count=len(options)))
+
+
+def choose_with_arrows(title: str, options: list[tuple[str, T]], language: str) -> T:
+    labels = tui_labels(language)
+    selected = 0
+    fd = sys.stdin.fileno()
+    old_attrs = termios.tcgetattr(fd)
+    try:
+        tty.setraw(fd)
+        hide_cursor()
+        line_count = render_menu(title, options, selected, labels)
+        while True:
+            key = read_key(fd)
+            if key in {"down", "right"}:
+                selected = (selected + 1) % len(options)
+            elif key in {"up", "left"}:
+                selected = (selected - 1) % len(options)
+            elif key in {"enter", "space"}:
+                move_up(line_count)
+                render_menu(title, options, selected, labels, final=True)
+                return options[selected][1]
+            elif key.isdigit():
+                index = int(key)
+                if 1 <= index <= len(options):
+                    selected = index - 1
+                    move_up(line_count)
+                    render_menu(title, options, selected, labels, final=True)
+                    return options[selected][1]
+            elif key in {"ctrl-c", "esc"}:
+                raise KeyboardInterrupt
+            move_up(line_count)
+            line_count = render_menu(title, options, selected, labels)
+    finally:
+        show_cursor()
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_attrs)
+
+
+def render_menu(title: str, options: list[tuple[str, T]], selected: int, labels: dict[str, str], final: bool = False) -> int:
+    lines = [title]
+    for index, (label, _) in enumerate(options, start=1):
+        if index - 1 == selected:
+            lines.append(f"  > {index}. {label}")
+        else:
+            lines.append(f"    {index}. {label}")
+    lines.append(labels["selected"].format(label=options[selected][0]) if final else labels["arrow_hint"])
+    for line in lines:
+        sys.stdout.write("\033[2K" + line + "\n")
+    sys.stdout.flush()
+    return len(lines)
+
+
+def read_key(fd: int | None = None) -> str:
+    fd = fd if fd is not None else sys.stdin.fileno()
+    char = os.read(fd, 1).decode(errors="ignore")
+    if char in {"\r", "\n"}:
+        return "enter"
+    if char == " ":
+        return "space"
+    if char == "\x03":
+        return "ctrl-c"
+    if char == "\x1b":
+        sequence = char + read_escape_tail(fd)
+        if sequence in {"\x1b[A", "\x1bOA"}:
+            return "up"
+        if sequence in {"\x1b[B", "\x1bOB"}:
+            return "down"
+        if sequence in {"\x1b[C", "\x1bOC"}:
+            return "right"
+        if sequence in {"\x1b[D", "\x1bOD"}:
+            return "left"
+        return "esc"
+    return char
+
+
+def read_escape_tail(fd: int) -> str:
+    flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+    data = b""
+    deadline = time.monotonic() + 0.1
+    try:
+        fcntl.fcntl(fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+        while len(data) < 2 and time.monotonic() < deadline:
+            try:
+                chunk = os.read(fd, 2 - len(data))
+            except BlockingIOError:
+                chunk = b""
+            if chunk:
+                data += chunk
+                continue
+            time.sleep(0.005)
+    finally:
+        fcntl.fcntl(fd, fcntl.F_SETFL, flags)
+    return data.decode(errors="ignore")
+
+
+def move_up(line_count: int) -> None:
+    sys.stdout.write(f"\033[{line_count}F")
+
+
+def hide_cursor() -> None:
+    sys.stdout.write("\033[?25l")
+    sys.stdout.flush()
+
+
+def show_cursor() -> None:
+    sys.stdout.write("\033[?25h")
+    sys.stdout.flush()
 
 
 def ask_model(llm: str | None, language: str) -> str | None:
@@ -147,11 +264,15 @@ def tui_labels(language: str) -> dict[str, str]:
             "model": "模型 [{default}]: ",
             "cancelled": "已取消。",
             "using_llm": "正在使用紧凑 work facts 和所选 LLM provider。",
+            "arrow_hint": "使用 ↑/↓ 选择，Enter 确认；也可以按数字键。",
+            "selected": "已选择：{label}",
         }
     if language == "bilingual":
         return {
             "choose": "Choose / 选择 [1]: ",
             "choose_error": "Enter a number from 1 to {count}. / 请输入 1 到 {count} 之间的数字。",
+            "arrow_hint": "Use ↑/↓ and Enter. / 使用 ↑/↓ 选择，Enter 确认。",
+            "selected": "Selected / 已选择：{label}",
         }
     return {
         "scope": "Scope",
@@ -169,4 +290,6 @@ def tui_labels(language: str) -> dict[str, str]:
         "model": "Model [{default}]: ",
         "cancelled": "Cancelled.",
         "using_llm": "Using compact work facts with the selected LLM provider.",
+        "arrow_hint": "Use ↑/↓ to move, Enter to choose; number keys also work.",
+        "selected": "Selected: {label}",
     }
