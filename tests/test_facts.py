@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-from recap.facts import build_all_projects_facts, build_work_facts, classify_commands, clean_prompt, dedupe
+from recap.facts import build_all_projects_facts, build_work_facts, classify_commands, clean_prompt, dedupe, deterministic_summary, render_summary_prompt
 from recap.gitinfo import GitStatus
 from recap.llm import LLMError, summarize_with_openrouter
 
@@ -83,6 +83,12 @@ class FactsTest(unittest.TestCase):
         self.assertEqual(facts.completed_turns, [])
         self.assertEqual(facts.threads[0].completed_turns, [])
         self.assertEqual(facts.threads[0].pending_prompts, ["review it"])
+        summary = deterministic_summary(facts)
+        self.assertIn("No completed turns were detected", summary)
+        self.assertNotIn("- review it\n\nIn progress", summary)
+        prompt = render_summary_prompt(facts, language="chinese")
+        self.assertIn("Write the final summary in Simplified Chinese.", prompt)
+        self.assertIn("已完成, 进行中, 风险", prompt)
 
     def test_all_project_grouping(self) -> None:
         rows = [

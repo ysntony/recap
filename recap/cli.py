@@ -23,6 +23,7 @@ from .store import EventStore, default_db_path, default_global_db_path
 
 
 LOCAL_TZ = ZoneInfo("Asia/Shanghai")
+LANGUAGES = ("english", "chinese")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -46,6 +47,10 @@ def main(argv: list[str] | None = None) -> int:
         if not args.no_scan:
             cmd_scan(args, project, db_path, quiet=True)
         return cmd_summarize(args, project, db_path)
+    if args.command == "tui":
+        from .tui import run_tui
+
+        return run_tui(project, db_path, codex_home=Path(args.codex_home).expanduser().resolve())
     if args.command == "status":
         return cmd_status(args, project, db_path)
     if args.command == "timeline":
@@ -90,7 +95,11 @@ def build_parser() -> argparse.ArgumentParser:
     summarize.add_argument("--prompt", action="store_true", help="Print the LLM prompt instead of summarizing.")
     summarize.add_argument("--llm", choices=["openai", "openrouter"], default=None, help="Use an LLM provider instead of deterministic summary.")
     summarize.add_argument("--model", default=None, help="Model name for the selected LLM provider.")
+    summarize.add_argument("--language", choices=LANGUAGES, default="english", help="Summary language.")
     summarize.set_defaults(rebuild=False)
+
+    tui = sub.add_parser("tui", help="Open the interactive Recap terminal UI.")
+    tui.add_argument("--codex-home", default=str(default_codex_home()), help="Codex home directory.")
 
     status = sub.add_parser("status", help="Show database and git status for the project.")
     status.add_argument("--all-projects", action="store_true", help="Show global database project stats.")
@@ -173,30 +182,33 @@ def cmd_facts(args: argparse.Namespace, project: Path, db_path: Path) -> int:
 
 def cmd_summarize(args: argparse.Namespace, project: Path, db_path: Path) -> int:
     facts = load_facts(args, project, db_path)
-    prompt = render_summary_prompt(facts)
+    prompt = render_summary_prompt(facts, language=args.language)
     if args.prompt:
         print(prompt)
         return 0
-    if args.llm == "openai":
-        try:
-            print(summarize_with_openai(prompt, model=args.model), end="")
-        except LLMError as exc:
-            print(f"LLM summary unavailable: {exc}")
-            print()
-            print("Deterministic fallback:")
-            print(deterministic_summary(facts), end="")
-        return 0
-    if args.llm == "openrouter":
-        try:
-            print(summarize_with_openrouter(prompt, model=args.model), end="")
-        except LLMError as exc:
-            print(f"LLM summary unavailable: {exc}")
-            print()
-            print("Deterministic fallback:")
-            print(deterministic_summary(facts), end="")
-        return 0
-    print(deterministic_summary(facts), end="")
+    print(summarize_facts(facts, llm=args.llm, model=args.model, language=args.language), end="")
     return 0
+
+
+def summarize_facts(facts, llm: str | None = None, model: str | None = None, language: str = "english") -> str:
+    prompt = render_summary_prompt(facts, language=language)
+    if llm == "openai":
+        try:
+            return summarize_with_openai(prompt, model=model)
+        except LLMError as exc:
+            return fallback_summary(exc, facts, language)
+    if llm == "openrouter":
+        try:
+            return summarize_with_openrouter(prompt, model=model)
+        except LLMError as exc:
+            return fallback_summary(exc, facts, language)
+    return deterministic_summary(facts, language=language)
+
+
+def fallback_summary(exc: LLMError, facts, language: str) -> str:
+    if language == "chinese":
+        return f"LLM 摘要不可用：{exc}\n\n确定性摘要：\n{deterministic_summary(facts, language=language)}"
+    return f"LLM summary unavailable: {exc}\n\nDeterministic fallback:\n{deterministic_summary(facts, language=language)}"
 
 
 def cmd_status(args: argparse.Namespace, project: Path, db_path: Path) -> int:

@@ -20,6 +20,7 @@ python3 -m recap today
 python3 -m recap today --all-projects
 python3 -m recap facts
 python3 -m recap summarize
+python3 -m recap tui
 python3 -m recap status
 python3 -m recap timeline
 ```
@@ -37,6 +38,7 @@ python3 -m recap facts --json
 python3 -m recap facts --all-projects
 python3 -m recap summarize --prompt
 python3 -m recap summarize --all-projects
+python3 -m recap summarize --language chinese
 python3 -m recap summarize --llm openai
 python3 -m recap summarize --llm openrouter
 python3 -m recap timeline --limit 40
@@ -48,6 +50,7 @@ All-project mode stores data in `~/.recap/recap.sqlite`, scans every Codex sessi
 
 `summarize` is deterministic by default. `summarize --llm openai` sends a compact work-facts prompt to OpenAI when `OPENAI_API_KEY` is set; otherwise it falls back gracefully.
 `summarize --llm openrouter` uses `OPENROUTER_API_KEY` and defaults to `OPENROUTER_MODEL=openai/gpt-4.1`.
+Use `summarize --language chinese` for Simplified Chinese output, or run `python3 -m recap tui` to choose scope, language, LLM provider, model, and scan mode interactively.
 
 ## OpenRouter Setup
 
@@ -75,4 +78,4 @@ export OPENROUTER_TITLE="Recap"
 
 ## Current Scope
 
-This first version intentionally avoids a daemon, TUI, Claude ingestion, and Kimi ingestion. The core is a pull-based Codex adapter plus a small event ledger. Once this feels useful, daemon/watch mode and additional adapters can be added around the same event model.
+This first version intentionally avoids a daemon, Claude ingestion, and Kimi ingestion. The core is a pull-based Codex adapter plus a small event ledger and a lightweight terminal UI. Once this feels useful, daemon/watch mode and additional adapters can be added around the same event model.
