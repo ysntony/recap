@@ -27,6 +27,7 @@ class ThreadFacts:
     thread_id: str
     event_count: int
     prompts: list[str]
+    pending_prompts: list[str]
     commands: list[str]
     completed_turns: list[str]
     tool_failures: list[str]
@@ -61,16 +62,16 @@ class AllProjectsFacts:
 def build_work_facts(project: Path, since: datetime, rows: list[Row], git: GitStatus) -> WorkFacts:
     event_kinds = Counter(row["kind"] for row in rows)
     thread_count = len({row["thread_id"] for row in rows if row["thread_id"]})
-    prompts = dedupe(one_line(row["text"], 260) for row in rows if row["kind"] == "user_message" and not is_internal_prompt(row["text"]))
+    prompts = dedupe(clean_prompt(row["text"], 260) for row in rows if row["kind"] == "user_message" and not is_internal_prompt(row["text"]))
     commands = [row["text"] for row in rows if row["kind"] == "command"]
-    completed_turns = [
-        one_line(row["text"], 500)
-        for row in rows
-        if row["kind"] == "task_complete" and not looks_like_json(row["text"])
-    ]
     files = sorted(extract_files(rows, git))
     failures = extract_failures(rows)
     threads = build_thread_facts(rows)
+    completed_turns = [
+        completed
+        for thread in sorted(threads, key=lambda item: item.updated_at or "")
+        for completed in thread.completed_turns
+    ]
     return WorkFacts(
         project=project,
         since=since,
@@ -166,6 +167,9 @@ def render_all_projects_facts(facts: AllProjectsFacts) -> str:
             lines.append("- Prompts: " + " | ".join(project.prompts[-3:]))
         if project.completed_turns:
             lines.append("- Latest completed: " + project.completed_turns[-1])
+        pending = latest_pending_prompt(project)
+        if pending:
+            lines.append("- Pending: " + pending)
         if project.git.is_repo:
             lines.append(
                 f"- Git: {project.git.branch or '(detached)'} @ {project.git.head or '(unknown)'}, "
@@ -181,6 +185,8 @@ def render_all_projects_facts(facts: AllProjectsFacts) -> str:
                 lines.append(f"  - {one_line(title, 180)}")
                 if thread.completed_turns:
                     lines.append(f"    Outcome: {thread.completed_turns[-1]}")
+                elif thread.pending_prompts:
+                    lines.append(f"    Pending: {thread.pending_prompts[-1]}")
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -216,6 +222,8 @@ def deterministic_summary(facts: WorkFacts | AllProjectsFacts) -> str:
             lines.append(f"- {one_line(title, 180)}")
             if thread.completed_turns:
                 lines.append(f"  Outcome: {thread.completed_turns[-1]}")
+            elif thread.pending_prompts:
+                lines.append(f"  Pending: {thread.pending_prompts[-1]}")
     lines.extend(["", "Risks"])
     risks = facts.attention or facts.tool_failures
     lines.extend(format_list(risks or ["No obvious risk detected from the current ledger."]))
@@ -236,26 +244,41 @@ def deterministic_summary(facts: WorkFacts | AllProjectsFacts) -> str:
 def deterministic_all_projects_summary(facts: AllProjectsFacts) -> str:
     lines = ["All-project recap summary", ""]
     lines.append("Completed")
+    completed_projects = [project for project in facts.projects if project.completed_turns]
     if not facts.projects:
         lines.append("- No project activity was detected.")
-    for project in facts.projects:
-        latest = project.completed_turns[-1] if project.completed_turns else (project.prompts[-1] if project.prompts else "Activity recorded.")
-        lines.append(f"- {project.project}: {latest}")
+    elif not completed_projects:
+        lines.append("- No completed turns were detected in this time range.")
+    for project in completed_projects:
+        lines.append(f"- {project_label(project.project)}: {one_line(project.completed_turns[-1], 260)}")
     lines.extend(["", "In progress"])
     in_progress = [
-        f"{project.project}: {len(project.git.changed_files)} changed file(s)"
+        f"{project_label(project.project)}: {len(project.git.changed_files)} changed file(s)"
         for project in facts.projects
         if project.git.is_repo and project.git.changed_files
     ]
+    in_progress.extend(
+        f"{project_label(project.project)}: awaiting response to `{one_line(pending, 140)}`"
+        for project in facts.projects
+        for pending in latest_pending_prompts(project, count=1)
+    )
     lines.extend(format_list(in_progress or ["No changed files detected across git repositories."]))
     lines.extend(["", "Risks"])
     risks = []
     for project in facts.projects:
-        risks.extend(f"{project.project}: {item}" for item in project.attention[:3])
+        risks.extend(f"{project_label(project.project)}: {item}" for item in project.attention[:3])
     lines.extend(format_list(risks or ["No obvious risk detected from the current ledger."]))
     lines.extend(["", "Suggested next actions"])
-    lines.append("- Review the highest-activity project threads first.")
-    lines.append("- Run project-local `recap facts` for any project that needs a detailed handoff.")
+    next_actions = []
+    for project in facts.projects:
+        label = project_label(project.project)
+        for pending in latest_pending_prompts(project, count=1):
+            next_actions.append(f"Finish the pending `{label}` thread: {one_line(pending, 140)}.")
+        if project.git.is_repo and project.git.changed_files:
+            next_actions.append(f"Review and commit or discard the {len(project.git.changed_files)} changed file(s) in `{label}`.")
+        if "No test command was seen in today's Codex command log." in project.attention:
+            next_actions.append(f"Run a validation command in `{label}` and rescan.")
+    lines.extend(format_list(dedupe(next_actions)[:5] or ["Review the highest-activity project threads first."]))
     lines.extend(["", "Suggested commit or PR notes"])
     lines.append("- Use each project's thread section as the source for commit or PR summaries.")
     return "\n".join(lines).rstrip() + "\n"
@@ -269,16 +292,21 @@ def build_thread_facts(rows: list[Row]) -> list[ThreadFacts]:
     threads: list[ThreadFacts] = []
     for thread_id, thread_rows in by_thread.items():
         prompts = dedupe(
-            one_line(row["text"], 220)
+            clean_prompt(row["text"], 220)
             for row in thread_rows
             if row["kind"] == "user_message" and not is_internal_prompt(row["text"])
         )
         commands = [row["text"] for row in thread_rows if row["kind"] == "command"]
+        latest_user_ts = max((row["ts"] for row in thread_rows if row["kind"] == "user_message" and not is_internal_prompt(row["text"])), default=None)
+        latest_completed_ts = max((row["ts"] for row in thread_rows if row["kind"] == "task_complete" and not looks_like_json(row["text"])), default=None)
         completed = [
             one_line(row["text"], 420)
             for row in thread_rows
-            if row["kind"] == "task_complete" and not looks_like_json(row["text"])
+            if row["kind"] == "task_complete"
+            and not looks_like_json(row["text"])
+            and (latest_user_ts is None or row["ts"] >= latest_user_ts)
         ]
+        pending_prompts = prompts[-1:] if latest_user_ts and (latest_completed_ts is None or latest_user_ts > latest_completed_ts) else []
         failures = extract_failures(thread_rows)
         timestamps = [row["ts"] for row in thread_rows]
         threads.append(
@@ -286,6 +314,7 @@ def build_thread_facts(rows: list[Row]) -> list[ThreadFacts]:
                 thread_id=thread_id,
                 event_count=len(thread_rows),
                 prompts=prompts[-5:],
+                pending_prompts=pending_prompts,
                 commands=commands[-8:],
                 completed_turns=completed[-3:],
                 tool_failures=failures[-5:],
@@ -306,6 +335,8 @@ def render_thread_block(thread: ThreadFacts) -> list[str]:
         lines.append("  Recent commands: " + " | ".join(one_line(command, 80) for command in thread.commands[-4:]))
     if thread.completed_turns:
         lines.append("  Outcome: " + thread.completed_turns[-1])
+    elif thread.pending_prompts:
+        lines.append("  Pending: " + thread.pending_prompts[-1])
     if thread.tool_failures:
         lines.append("  Failures: " + " | ".join(thread.tool_failures[:2]))
     return lines
@@ -365,6 +396,36 @@ def dedupe(values) -> list[str]:
     return result
 
 
+def clean_prompt(text: str, limit: int) -> str:
+    marker = "## My request for Codex:"
+    if marker in text:
+        text = text.split(marker, 1)[1]
+    return one_line(text, limit)
+
+
+def latest_pending_prompt(facts: WorkFacts) -> str | None:
+    prompts = latest_pending_prompts(facts, count=1)
+    return prompts[0] if prompts else None
+
+
+def latest_pending_prompts(facts: WorkFacts, count: int) -> list[str]:
+    pending: list[str] = []
+    for thread in facts.threads:
+        pending.extend(reversed(thread.pending_prompts))
+    return pending[:count]
+
+
+def project_label(project: Path) -> str:
+    parts = project.parts
+    if "work-projects" in parts:
+        index = parts.index("work-projects")
+        return "/".join(parts[index + 1 :]) or project.name
+    if "Codex" in parts:
+        index = parts.index("Codex")
+        return "/".join(parts[index:]) or project.name
+    return project.name or str(project)
+
+
 def is_internal_prompt(text: str) -> bool:
     stripped = text.lstrip()
     return stripped.startswith(
@@ -410,6 +471,7 @@ def facts_to_json(facts: WorkFacts) -> str:
                 "thread_id": thread.thread_id,
                 "event_count": thread.event_count,
                 "prompts": thread.prompts,
+                "pending_prompts": thread.pending_prompts,
                 "commands": thread.commands,
                 "completed_turns": thread.completed_turns,
                 "tool_failures": thread.tool_failures,
