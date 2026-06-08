@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import unittest
+from io import StringIO
 from unittest.mock import patch
 
-from recap.tui import provider_label, tui_labels
+from recap.tui import provider_label, render_menu, tui_labels
 
 
 class TuiTest(unittest.TestCase):
@@ -27,6 +28,17 @@ class TuiTest(unittest.TestCase):
         with patch.dict("os.environ", {}, clear=True):
             self.assertIn("缺少 OPENROUTER_API_KEY", provider_label("openrouter", "chinese"))
             self.assertIn("missing OPENAI_API_KEY", provider_label("openai", "english"))
+
+    def test_arrow_menu_uses_carriage_return_newlines(self) -> None:
+        labels = tui_labels("english")
+        output = StringIO()
+
+        with patch("sys.stdout", output):
+            line_count = render_menu("Pick", [("One", 1), ("Two", 2)], 1, labels)
+
+        self.assertEqual(line_count, 4)
+        self.assertIn("\r\n", output.getvalue())
+        self.assertNotIn("One\n", output.getvalue())
 
 
 if __name__ == "__main__":

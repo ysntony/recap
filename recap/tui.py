@@ -156,7 +156,7 @@ def render_menu(title: str, options: list[tuple[str, T]], selected: int, labels:
             lines.append(f"    {index}. {label}")
     lines.append(labels["selected"].format(label=options[selected][0]) if final else labels["arrow_hint"])
     for line in lines:
-        sys.stdout.write("\033[2K" + line + "\n")
+        sys.stdout.write("\r\033[2K" + line + "\r\n")
     sys.stdout.flush()
     return len(lines)
 
